@@ -10,8 +10,15 @@ Overnight operators need a calm, reliable control panel that favors clear state 
 
 - **Python**: 3.10+
 - **OS**: Linux-first (desktop + Raspberry Pi). Others untested.
+- **Debian/Ubuntu**: `python3-venv` (required for `python3 -m venv`)
 
 ## How to Run
+
+Debian/Ubuntu (once):
+
+```bash
+sudo apt install -y python3-venv
+```
 
 ```bash
 cd /path/to/repo
@@ -24,10 +31,12 @@ python -m nightwatch
 
 Open `http://127.0.0.1:8037/`.
 
-If `python3 -m venv .venv` fails on Debian/Ubuntu, install venv support:
+If you can’t (or won’t) use a venv:
 
 ```bash
-sudo apt install -y python3-venv
+python3 -m pip install -U --user pip
+python3 -m pip install -e . --user
+python3 -m nightwatch
 ```
 
 ## API Surface (MVP)
