@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from nightwatch.db import get_db, init_db
-from nightwatch.models import Shift, Task
 from nightwatch.schemas import (
     ShiftNotesIn,
     ShiftOut,
@@ -19,18 +18,25 @@ from nightwatch.schemas import (
     TaskIn,
     TaskOut,
 )
+from nightwatch.services import (
+    add_task,
+    complete_task,
+    delete_task,
+    end_shift,
+    get_active_shift,
+    list_tasks_for_active_shift,
+    reopen_task,
+    set_shift_notes,
+    start_shift,
+)
 from nightwatch.system_watch import read_system_snapshot
 
 
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _shift_out(s: Shift) -> ShiftOut:
+def _shift_out(s) -> ShiftOut:
     return ShiftOut(id=s.id, started_at=s.started_at, ended_at=s.ended_at, notes=s.notes)
 
 
-def _task_out(t: Task) -> TaskOut:
+def _task_out(t) -> TaskOut:
     return TaskOut(
         id=t.id,
         title=t.title,
@@ -41,11 +47,36 @@ def _task_out(t: Task) -> TaskOut:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Nightwatch OS Dashboard", version="0.1.0")
+    async def _backup_loop() -> None:
+        # init_db() already does a daily backup once; loop keeps it daily.
+        from nightwatch.backup import ensure_daily_backup
+        from nightwatch.config import get_settings
 
-    @app.on_event("startup")
-    def _startup() -> None:
+        while True:
+            ensure_daily_backup(get_settings().db_path, get_settings().backups_dir)
+            await asyncio.sleep(30 * 60)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
         init_db()
+        task = asyncio.create_task(_backup_loop())
+        try:
+            yield
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+            # Final backup attempt on shutdown.
+            from nightwatch.backup import ensure_daily_backup
+            from nightwatch.config import get_settings
+
+            ensure_daily_backup(get_settings().db_path, get_settings().backups_dir)
+
+    app = FastAPI(title="Nightwatch OS Dashboard", version="0.1.0", lifespan=lifespan)
 
     static_dir = Path(__file__).parent / "static"
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -65,123 +96,61 @@ def create_app() -> FastAPI:
 
     @app.get("/api/shift/current", response_model=ShiftOut | None)
     def shift_current(db: Session = Depends(get_db)) -> ShiftOut | None:
-        s = db.execute(select(Shift).where(Shift.ended_at.is_(None)).order_by(Shift.id.desc())).scalars().first()
+        s = get_active_shift(db)
         return _shift_out(s) if s else None
 
     @app.post("/api/shift/start", response_model=ShiftStartOut)
     def shift_start(db: Session = Depends(get_db)) -> ShiftStartOut:
-        active = (
-            db.execute(select(Shift).where(Shift.ended_at.is_(None)).order_by(Shift.id.desc()))
-            .scalars()
-            .first()
-        )
-        if active:
-            return ShiftStartOut(shift=_shift_out(active), carried_task_count=0, already_active=True)
-
-        new_shift = Shift(started_at=_utcnow(), ended_at=None, notes="")
-        db.add(new_shift)
-        db.flush()  # assigns id
-
-        # Carry unfinished tasks forward (including "unassigned" tasks created before a shift started).
-        carried = db.execute(
-            update(Task)
-            .where(Task.completed_at.is_(None))
-            .values(shift_id=new_shift.id)
-            .execution_options(synchronize_session="fetch")
-        )
-
-        db.commit()
-        db.refresh(new_shift)
+        new_shift, carried_count, already_active = start_shift(db)
         return ShiftStartOut(
             shift=_shift_out(new_shift),
-            carried_task_count=int(getattr(carried, "rowcount", 0) or 0),
-            already_active=False,
+            carried_task_count=carried_count,
+            already_active=already_active,
         )
 
     @app.post("/api/shift/end", response_model=ShiftOut)
     def shift_end(db: Session = Depends(get_db)) -> ShiftOut:
-        active = (
-            db.execute(select(Shift).where(Shift.ended_at.is_(None)).order_by(Shift.id.desc()))
-            .scalars()
-            .first()
-        )
-        if not active:
+        ended = end_shift(db)
+        if not ended:
             raise HTTPException(status_code=409, detail="No active shift.")
-        active.ended_at = _utcnow()
-        db.add(active)
-        db.commit()
-        db.refresh(active)
-        return _shift_out(active)
+        return _shift_out(ended)
 
     @app.put("/api/shift/{shift_id}/notes", response_model=ShiftOut)
     def shift_notes(shift_id: int, payload: ShiftNotesIn, db: Session = Depends(get_db)) -> ShiftOut:
-        s = db.get(Shift, shift_id)
+        s = set_shift_notes(db, shift_id, payload.notes)
         if not s:
             raise HTTPException(status_code=404, detail="Shift not found.")
-        s.notes = payload.notes
-        db.add(s)
-        db.commit()
-        db.refresh(s)
         return _shift_out(s)
 
     @app.get("/api/tasks/current", response_model=list[TaskOut])
     def tasks_current(db: Session = Depends(get_db)) -> list[TaskOut]:
-        active = (
-            db.execute(select(Shift).where(Shift.ended_at.is_(None)).order_by(Shift.id.desc()))
-            .scalars()
-            .first()
-        )
-        if not active:
-            return []
-        tasks = (
-            db.execute(select(Task).where(Task.shift_id == active.id).order_by(Task.id.desc()))
-            .scalars()
-            .all()
-        )
+        tasks = list_tasks_for_active_shift(db)
         return [_task_out(t) for t in tasks]
 
     @app.post("/api/tasks", response_model=TaskOut)
     def task_add(payload: TaskIn, db: Session = Depends(get_db)) -> TaskOut:
-        active = (
-            db.execute(select(Shift).where(Shift.ended_at.is_(None)).order_by(Shift.id.desc()))
-            .scalars()
-            .first()
-        )
-        t = Task(title=payload.title.strip(), shift_id=active.id if active else None, completed_at=None)
-        db.add(t)
-        db.commit()
-        db.refresh(t)
+        t = add_task(db, payload.title)
         return _task_out(t)
 
     @app.post("/api/tasks/{task_id}/complete", response_model=TaskOut)
     def task_complete(task_id: int, db: Session = Depends(get_db)) -> TaskOut:
-        t = db.get(Task, task_id)
+        t = complete_task(db, task_id)
         if not t:
             raise HTTPException(status_code=404, detail="Task not found.")
-        t.completed_at = _utcnow()
-        db.add(t)
-        db.commit()
-        db.refresh(t)
         return _task_out(t)
 
     @app.post("/api/tasks/{task_id}/reopen", response_model=TaskOut)
     def task_reopen(task_id: int, db: Session = Depends(get_db)) -> TaskOut:
-        t = db.get(Task, task_id)
+        t = reopen_task(db, task_id)
         if not t:
             raise HTTPException(status_code=404, detail="Task not found.")
-        t.completed_at = None
-        db.add(t)
-        db.commit()
-        db.refresh(t)
         return _task_out(t)
 
     @app.delete("/api/tasks/{task_id}")
     def task_delete(task_id: int, db: Session = Depends(get_db)) -> dict:
-        t = db.get(Task, task_id)
-        if not t:
+        ok = delete_task(db, task_id)
+        if not ok:
             raise HTTPException(status_code=404, detail="Task not found.")
-        db.delete(t)
-        db.commit()
         return {"ok": True}
 
     @app.get("/api/system", response_model=SystemOut)

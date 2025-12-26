@@ -39,6 +39,20 @@ python3 -m pip install -e . --user
 python3 -m nightwatch
 ```
 
+CLI (headless):
+
+```bash
+python3 -m nightwatch status
+python3 -m nightwatch start-shift
+python3 -m nightwatch end-shift
+python3 -m nightwatch tasks
+```
+
+Config:
+
+- **`nightwatch.toml`** is read from the current working directory (or `~/.config/nightwatch/nightwatch.toml`).
+- Env vars override config (`NIGHTWATCH_DATA_DIR`, `NIGHTWATCH_DB_PATH`, `NIGHTWATCH_BACKUPS_DIR`, `NIGHTWATCH_HOST`, `NIGHTWATCH_PORT`).
+
 ## API Surface (MVP)
 
 All responses are JSON unless noted.
@@ -93,6 +107,9 @@ All responses are JSON unless noted.
 - Carry unfinished tasks to the next shift on shift start
 - System watch: CPU, RAM, disk, temperature (when available), network up/down
 - Focus Mode (blackout UI; clock + tasks + heartbeat)
+- SQLite migrations (versioned SQL)
+- Daily SQLite backup (prefers `/backups/`, falls back to `data_dir/backups`)
+- CLI companion (`nightwatch status/start-shift/end-shift/tasks`)
 
 ## Non-Goals
 

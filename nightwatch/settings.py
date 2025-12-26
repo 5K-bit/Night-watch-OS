@@ -1,22 +1,15 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
+# Backwards-compatible re-exports.
+# Prefer importing `get_settings()` from `nightwatch.config`.
 
+from nightwatch.config import get_settings
 
-def _default_data_dir() -> Path:
-    # Linux-first local app convention
-    xdg = os.environ.get("XDG_DATA_HOME")
-    if xdg:
-        return Path(xdg) / "nightwatch"
-    return Path.home() / ".local" / "share" / "nightwatch"
+_s = get_settings()
 
-
-DATA_DIR = Path(os.environ.get("NIGHTWATCH_DATA_DIR", str(_default_data_dir()))).expanduser()
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-DB_PATH = Path(os.environ.get("NIGHTWATCH_DB_PATH", str(DATA_DIR / "nightwatch.db"))).expanduser()
-
-HOST = os.environ.get("NIGHTWATCH_HOST", "127.0.0.1")
-PORT = int(os.environ.get("NIGHTWATCH_PORT", "8037"))
+DATA_DIR = _s.data_dir
+DB_PATH = _s.db_path
+BACKUPS_DIR = _s.backups_dir
+HOST = _s.host
+PORT = _s.port
 
