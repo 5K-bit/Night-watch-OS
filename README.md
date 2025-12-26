@@ -24,6 +24,12 @@ python -m nightwatch
 
 Open `http://127.0.0.1:8037/`.
 
+If `python3 -m venv .venv` fails on Debian/Ubuntu, install venv support:
+
+```bash
+sudo apt install -y python3-venv
+```
+
 ## API Surface (MVP)
 
 All responses are JSON unless noted.
@@ -85,3 +91,7 @@ All responses are JSON unless noted.
 - Alerting/notification systems
 - Cross-platform support guarantees (Linux-first; others untested)
 - Encrypted notes (not in MVP)
+
+## Screenshot
+
+![Nightwatch Focus Mode](docs/screenshot.png)

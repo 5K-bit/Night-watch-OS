@@ -54,6 +54,11 @@ def create_app() -> FastAPI:
     def index() -> Response:
         return FileResponse(static_dir / "index.html")
 
+    @app.get("/favicon.ico")
+    def favicon() -> Response:
+        # Avoid noisy 404s; no icon in MVP.
+        return Response(status_code=204)
+
     @app.get("/api/health")
     def health() -> dict:
         return {"ok": True}
