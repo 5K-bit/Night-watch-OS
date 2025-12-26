@@ -183,6 +183,12 @@ function startClock() {
 async function boot() {
   startClock();
 
+  // URL override for screenshots / kiosk launches.
+  try {
+    const qs = new URLSearchParams(location.search);
+    if (qs.get("focus") === "1") setFocus(true);
+  } catch {}
+
   try {
     const saved = localStorage.getItem("nightwatch.focus");
     if (saved === "1") setFocus(true);
