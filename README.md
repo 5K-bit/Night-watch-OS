@@ -2,6 +2,9 @@
 
 Nightwatch OS Dashboard is a local-first desktop dashboard for Linux that provides shift logging, a task ledger, and basic system status in a restrained UI.
 
+Status: MVP complete, core stable.  
+Focused on reliability, local-first operation, and restrained scope.
+
 ## Why It Exists
 
 Overnight operators need a calm, reliable control panel that favors clear state over decoration, and keeps data local with minimal moving parts.
