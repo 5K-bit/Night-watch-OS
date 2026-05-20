@@ -1,30 +1,58 @@
+# Night-watch-OS
+
+Night-watch-OS is a local-first Linux dashboard for overnight operators, combining shift logging, task tracking, and basic system visibility in a restrained interface.
+
 ## What It Is
 
-Nightwatch OS Dashboard is a local-first desktop dashboard for Linux that provides shift logging, a task ledger, and basic system status in a restrained UI.
+This project is a Python application with two operator surfaces:
 
-Status: MVP complete, core stable.  
-Focused on reliability, local-first operation, and restrained scope.
+- a local web dashboard served with FastAPI
+- a lightweight CLI for headless use
+
+It stores data locally, tracks active shifts, records task flow, captures notes, and exposes a small JSON API for the dashboard.
 
 ## Why It Exists
 
-Overnight operators need a calm, reliable control panel that favors clear state over decoration, and keeps data local with minimal moving parts.
+Night-watch-OS exists because overnight work benefits from calm tooling that shows the current state clearly, keeps data local, and avoids unnecessary complexity.
 
-## Requirements
+## Problem It Solves
 
-- **Python**: 3.10+
-- **OS**: Linux-first (desktop + Raspberry Pi). Others untested.
-- **Debian/Ubuntu**: `python3-venv` (required for `python3 -m venv`)
+Operators often end up juggling notes, task lists, and system checks across multiple tools. Night-watch-OS brings those basics into one local control surface with minimal moving parts.
 
-## How to Run
+## Features
 
-Debian/Ubuntu (once):
+- start and end shifts with automatic timestamps
+- carry unfinished tasks into the next shift
+- track open and completed tasks
+- store notes for each shift
+- read basic system health such as CPU, RAM, disk, temperature, and network status
+- provide a focus-mode style operator dashboard
+- persist data in SQLite with migrations and daily backups
+- expose a small CLI for status and shift actions
+
+## Tech Stack
+
+- Python 3.10+
+- FastAPI
+- Uvicorn
+- SQLAlchemy
+- Pydantic
+- SQLite
+- psutil
+- static HTML, CSS, and JavaScript
+
+## Quick Start
+
+Debian or Ubuntu users may need:
 
 ```bash
 sudo apt install -y python3-venv
 ```
 
+Recommended local setup:
+
 ```bash
-cd /path/to/repo
+cd /path/to/Night-watch-OS
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -U pip
@@ -34,7 +62,7 @@ python -m nightwatch
 
 Open `http://127.0.0.1:8037/`.
 
-If you can’t (or won’t) use a venv:
+If you prefer not to use a virtual environment:
 
 ```bash
 python3 -m pip install -U --user pip
@@ -42,85 +70,63 @@ python3 -m pip install -e . --user
 python3 -m nightwatch
 ```
 
-CLI (headless):
+Configuration is read from `nightwatch.toml` in the current working directory or `~/.config/nightwatch/nightwatch.toml`. Environment variables can override data and server settings.
 
-```bash
-python3 -m nightwatch status
-python3 -m nightwatch start-shift
-python3 -m nightwatch end-shift
-python3 -m nightwatch tasks
-```
+## CLI / API Usage
 
-Config:
+CLI:
 
-- **`nightwatch.toml`** is read from the current working directory (or `~/.config/nightwatch/nightwatch.toml`).
-- Env vars override config (`NIGHTWATCH_DATA_DIR`, `NIGHTWATCH_DB_PATH`, `NIGHTWATCH_BACKUPS_DIR`, `NIGHTWATCH_HOST`, `NIGHTWATCH_PORT`).
+- `python3 -m nightwatch status`
+- `python3 -m nightwatch start-shift`
+- `python3 -m nightwatch end-shift`
+- `python3 -m nightwatch tasks`
+- `python3 -m nightwatch serve --host 127.0.0.1 --port 8037`
 
-## API Surface (MVP)
+Key API routes:
 
-All responses are JSON unless noted.
+- `GET /api/health`
+- `GET /api/system`
+- `GET /api/shift/current`
+- `POST /api/shift/start`
+- `POST /api/shift/end`
+- `PUT /api/shift/{shift_id}/notes`
+- `GET /api/tasks/current`
+- `POST /api/tasks`
+- `POST /api/tasks/{task_id}/complete`
+- `POST /api/tasks/{task_id}/reopen`
+- `DELETE /api/tasks/{task_id}`
 
-- **GET `/api/health`**: health probe.
-  - **200**: `{ "ok": true }`
+## Screenshots
 
-- **GET `/api/system`**: system snapshot (CPU/RAM/disk/temp/network).
-  - **200**:
-    - `{ "at": "<iso>", "cpu_percent": <float>, "ram_percent": <float>, "ram_used_mb": <int>, "ram_total_mb": <int>, "disk_percent": <float>, "disk_used_gb": <float>, "disk_total_gb": <float>, "temp_c": <float|null>, "network_up": <bool> }`
+![Night-watch-OS screenshot](docs/screenshot.png)
 
-- **GET `/api/shift/current`**: current active shift (or none).
-  - **200**: `null` or `{ "id": <int>, "started_at": "<iso>", "ended_at": null, "notes": "<string>" }`
+## Status
 
-- **POST `/api/shift/start`**: start a shift; carries unfinished tasks forward.
-  - **200**:
-    - `{ "shift": { "id": <int>, "started_at": "<iso>", "ended_at": null, "notes": "<string>" }, "carried_task_count": <int>, "already_active": <bool> }`
+Current status: MVP complete and core stable.
 
-- **POST `/api/shift/end`**: end the active shift.
-  - **200**: `{ "id": <int>, "started_at": "<iso>", "ended_at": "<iso>", "notes": "<string>" }`
-  - **409**: `{ "detail": "No active shift." }`
+Implemented now:
 
-- **PUT `/api/shift/{shift_id}/notes`**: replace notes for a shift.
-  - **body**: `{ "notes": "<string>" }`
-  - **200**: `{ "id": <int>, "started_at": "<iso>", "ended_at": "<iso|null>", "notes": "<string>" }`
-  - **404**: `{ "detail": "Shift not found." }`
+- local dashboard server
+- shift lifecycle and task ledger
+- system snapshot endpoint
+- SQLite persistence and migrations
+- backup loop
+- CLI companion commands
 
-- **GET `/api/tasks/current`**: tasks for the active shift.
-  - **200**: `[ { "id": <int>, "title": "<string>", "created_at": "<iso>", "completed_at": "<iso|null>", "shift_id": <int|null> }, ... ]`
+Current boundaries:
 
-- **POST `/api/tasks`**: create a task (assigned to active shift if present).
-  - **body**: `{ "title": "<string>" }`
-  - **200**: `{ "id": <int>, "title": "<string>", "created_at": "<iso>", "completed_at": null, "shift_id": <int|null> }`
+- Linux-first target
+- no cloud sync
+- no multi-user permissions
+- no notification or alerting layer
 
-- **POST `/api/tasks/{task_id}/complete`**: mark task complete.
-  - **200**: `{ "id": <int>, "title": "<string>", "created_at": "<iso>", "completed_at": "<iso>", "shift_id": <int|null> }`
-  - **404**: `{ "detail": "Task not found." }`
+## Roadmap
 
-- **POST `/api/tasks/{task_id}/reopen`**: mark task incomplete.
-  - **200**: `{ "id": <int>, "title": "<string>", "created_at": "<iso>", "completed_at": null, "shift_id": <int|null> }`
-  - **404**: `{ "detail": "Task not found." }`
+- add more tests around services and API behavior
+- improve operator reporting and handoff visibility
+- expand documentation for deployment on Raspberry Pi and Linux hosts
+- refine the UI without widening scope beyond local operations
 
-- **DELETE `/api/tasks/{task_id}`**: delete task.
-  - **200**: `{ "ok": true }`
-  - **404**: `{ "detail": "Task not found." }`
+## Portfolio Note
 
-## MVP Features
-
-- Start/end shift with automatic timestamps
-- Notes per shift (plain text / markdown)
-- Task ledger with complete/reopen/delete
-- Carry unfinished tasks to the next shift on shift start
-- System watch: CPU, RAM, disk, temperature (when available), network up/down
-- Focus Mode (blackout UI; clock + tasks + heartbeat)
-- SQLite migrations (versioned SQL)
-- Daily SQLite backup (prefers `/backups/`, falls back to `data_dir/backups`)
-- CLI companion (`nightwatch status/start-shift/end-shift/tasks`)
-
-## Non-Goals
-
-- Cloud sync, accounts, or multi-user permissions
-- Alerting/notification systems
-- Cross-platform support guarantees (Linux-first; others untested)
-- Encrypted notes (not in MVP)
-
-## Screenshot
-
-![Nightwatch Focus Mode](docs/screenshot.png)
+Night-watch-OS shows a practical Blackfong direction: local-first tooling for operators, not a generic dashboard demo. It demonstrates restrained product thinking across backend, frontend, CLI, persistence, and daily-use workflow design.
