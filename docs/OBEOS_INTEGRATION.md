@@ -26,7 +26,15 @@ Those responsibilities belong to OBEOS services such as DAISE, The Assistant, Se
 
 ## Integration boundary
 
-OBEOS consumers should call Nightwatch through its API rather than reading the SQLite database directly.
+OBEOS consumers should call Nightwatch through its API rather than reading the SQLite database directly. Python consumers may use `nightwatch.client.NightwatchClient`, which preserves the same HTTP boundary while avoiding duplicated request code.
+
+```python
+from nightwatch.client import NightwatchClient
+
+nightwatch = NightwatchClient()
+nightwatch.start_shift()
+nightwatch.create_task("Review OBEOS telemetry")
+```
 
 Current stable endpoints:
 
@@ -56,6 +64,10 @@ Expected consumers include:
 
 Nightwatch is local-first. The default bind address should remain loopback. Any future network exposure must sit behind an authenticated OBEOS gateway or add explicit Nightwatch authentication before binding to non-loopback interfaces.
 
+## Failure rule
+
+If Nightwatch is unavailable, OBEOS must report operator state as unavailable rather than reconstructing current shift/task state from DAISE conversational memory. Reads may degrade gracefully; mutations should fail closed and surface the Nightwatch error.
+
 ## Event direction
 
 A later integration phase should emit deterministic OBEOS events such as:
@@ -67,7 +79,7 @@ A later integration phase should emit deterministic OBEOS events such as:
 - `operator.task.reopened`
 - `operator.note.updated`
 
-Nightwatch should emit facts. DAISE and other intelligent services should interpret those facts.
+Nightwatch should emit facts. DAISE and other intelligent services should interpret those facts. Event publication belongs in the OBEOS adapter so a messaging outage cannot prevent Nightwatch from persisting local operator state.
 
 ## Evolution path
 
