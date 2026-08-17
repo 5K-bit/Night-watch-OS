@@ -10,25 +10,9 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from nightwatch.db import get_db, init_db
-from nightwatch.schemas import (
-    ShiftNotesIn,
-    ShiftOut,
-    ShiftStartOut,
-    SystemOut,
-    TaskIn,
-    TaskOut,
-)
-from nightwatch.services import (
-    add_task,
-    complete_task,
-    delete_task,
-    end_shift,
-    get_active_shift,
-    list_tasks_for_active_shift,
-    reopen_task,
-    set_shift_notes,
-    start_shift,
-)
+from nightwatch.obeos_events import publish_event
+from nightwatch.schemas import ShiftNotesIn, ShiftOut, ShiftStartOut, SystemOut, TaskIn, TaskOut
+from nightwatch.services import add_task, complete_task, delete_task, end_shift, get_active_shift, list_tasks_for_active_shift, reopen_task, set_shift_notes, start_shift
 from nightwatch.system_watch import read_system_snapshot
 
 
@@ -37,21 +21,17 @@ def _shift_out(s) -> ShiftOut:
 
 
 def _task_out(t) -> TaskOut:
-    return TaskOut(
-        id=t.id,
-        title=t.title,
-        created_at=t.created_at,
-        completed_at=t.completed_at,
-        shift_id=t.shift_id,
-    )
+    return TaskOut(id=t.id, title=t.title, created_at=t.created_at, completed_at=t.completed_at, shift_id=t.shift_id)
+
+
+def _payload(value) -> dict:
+    return value.model_dump(mode="json") if hasattr(value, "model_dump") else dict(value)
 
 
 def create_app() -> FastAPI:
     async def _backup_loop() -> None:
-        # init_db() already does a daily backup once; loop keeps it daily.
         from nightwatch.backup import ensure_daily_backup
         from nightwatch.config import get_settings
-
         while True:
             ensure_daily_backup(get_settings().db_path, get_settings().backups_dir)
             await asyncio.sleep(30 * 60)
@@ -70,14 +50,11 @@ def create_app() -> FastAPI:
                 pass
             except Exception:
                 pass
-            # Final backup attempt on shutdown.
             from nightwatch.backup import ensure_daily_backup
             from nightwatch.config import get_settings
-
             ensure_daily_backup(get_settings().db_path, get_settings().backups_dir)
 
     app = FastAPI(title="Nightwatch OS Dashboard", version="0.1.0", lifespan=lifespan)
-
     static_dir = Path(__file__).parent / "static"
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
@@ -87,7 +64,6 @@ def create_app() -> FastAPI:
 
     @app.get("/favicon.ico")
     def favicon() -> Response:
-        # Avoid noisy 404s; no icon in MVP.
         return Response(status_code=204)
 
     @app.get("/api/health")
@@ -102,55 +78,62 @@ def create_app() -> FastAPI:
     @app.post("/api/shift/start", response_model=ShiftStartOut)
     def shift_start(db: Session = Depends(get_db)) -> ShiftStartOut:
         new_shift, carried_count, already_active = start_shift(db)
-        return ShiftStartOut(
-            shift=_shift_out(new_shift),
-            carried_task_count=carried_count,
-            already_active=already_active,
-        )
+        result = ShiftStartOut(shift=_shift_out(new_shift), carried_task_count=carried_count, already_active=already_active)
+        publish_event("nightwatch.shift.started", _payload(result))
+        return result
 
     @app.post("/api/shift/end", response_model=ShiftOut)
     def shift_end(db: Session = Depends(get_db)) -> ShiftOut:
         ended = end_shift(db)
         if not ended:
             raise HTTPException(status_code=409, detail="No active shift.")
-        return _shift_out(ended)
+        result = _shift_out(ended)
+        publish_event("nightwatch.shift.ended", _payload(result))
+        return result
 
     @app.put("/api/shift/{shift_id}/notes", response_model=ShiftOut)
     def shift_notes(shift_id: int, payload: ShiftNotesIn, db: Session = Depends(get_db)) -> ShiftOut:
         s = set_shift_notes(db, shift_id, payload.notes)
         if not s:
             raise HTTPException(status_code=404, detail="Shift not found.")
-        return _shift_out(s)
+        result = _shift_out(s)
+        publish_event("nightwatch.shift.notes_updated", _payload(result))
+        return result
 
     @app.get("/api/tasks/current", response_model=list[TaskOut])
     def tasks_current(db: Session = Depends(get_db)) -> list[TaskOut]:
-        tasks = list_tasks_for_active_shift(db)
-        return [_task_out(t) for t in tasks]
+        return [_task_out(t) for t in list_tasks_for_active_shift(db)]
 
     @app.post("/api/tasks", response_model=TaskOut)
     def task_add(payload: TaskIn, db: Session = Depends(get_db)) -> TaskOut:
-        t = add_task(db, payload.title)
-        return _task_out(t)
+        result = _task_out(add_task(db, payload.title))
+        publish_event("nightwatch.task.created", _payload(result))
+        return result
 
     @app.post("/api/tasks/{task_id}/complete", response_model=TaskOut)
     def task_complete(task_id: int, db: Session = Depends(get_db)) -> TaskOut:
         t = complete_task(db, task_id)
         if not t:
             raise HTTPException(status_code=404, detail="Task not found.")
-        return _task_out(t)
+        result = _task_out(t)
+        publish_event("nightwatch.task.completed", _payload(result))
+        return result
 
     @app.post("/api/tasks/{task_id}/reopen", response_model=TaskOut)
     def task_reopen(task_id: int, db: Session = Depends(get_db)) -> TaskOut:
         t = reopen_task(db, task_id)
         if not t:
             raise HTTPException(status_code=404, detail="Task not found.")
-        return _task_out(t)
+        result = _task_out(t)
+        publish_event("nightwatch.task.reopened", _payload(result))
+        return result
 
     @app.delete("/api/tasks/{task_id}")
     def task_delete(task_id: int, db: Session = Depends(get_db)) -> dict:
         ok = delete_task(db, task_id)
         if not ok:
             raise HTTPException(status_code=404, detail="Task not found.")
+        publish_event("nightwatch.task.deleted", {"task_id": task_id})
         return {"ok": True}
 
     @app.get("/api/system", response_model=SystemOut)
@@ -158,4 +141,3 @@ def create_app() -> FastAPI:
         return read_system_snapshot()
 
     return app
-
