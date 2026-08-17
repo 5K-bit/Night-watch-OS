@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "name": "nightwatch",
+  "component_type": "service",
+  "version": "0.1.0",
+  "entrypoint": "nightwatch",
+  "interfaces": ["cli", "http"],
+  "capabilities": ["shift-ledger", "tasks", "operator-notes", "system-status"],
+  "lifecycle": "operator-managed",
+  "health": {"path": "/api/health", "default_url": "http://127.0.0.1:8037/api/health"},
+  "dependencies": [],
+  "source_repository": "5K-bit/Night-watch-OS"
+}
