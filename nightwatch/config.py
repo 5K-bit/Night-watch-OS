@@ -76,10 +76,17 @@ def get_settings() -> Settings:
     cfg = _load_toml(config_path) if config_path else {}
     nw = cfg.get("nightwatch", cfg)  # allow either [nightwatch] or top-level
 
-    data_dir = Path(os.environ.get("NIGHTWATCH_DATA_DIR", nw.get("data_dir", str(_default_data_dir())))).expanduser()
+    data_dir = Path(
+        os.environ.get("NIGHTWATCH_DATA_DIR", nw.get("data_dir", str(_default_data_dir())))
+    ).expanduser()
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    db_path = Path(os.environ.get("NIGHTWATCH_DB_PATH", nw.get("db_path", str(data_dir / "nightwatch.db")))).expanduser()
+    db_path = Path(
+        os.environ.get("NIGHTWATCH_DB_PATH", nw.get("db_path", str(data_dir / "nightwatch.db")))
+    ).expanduser()
+    # A custom DB path may live outside data_dir. Ensure its parent exists before
+    # SQLAlchemy or the migration runner attempts to open SQLite.
+    db_path.parent.mkdir(parents=True, exist_ok=True)
 
     preferred_backups = Path(
         os.environ.get("NIGHTWATCH_BACKUPS_DIR", nw.get("backups_dir", "/backups"))
@@ -88,6 +95,8 @@ def get_settings() -> Settings:
 
     host = os.environ.get("NIGHTWATCH_HOST", nw.get("host", "127.0.0.1"))
     port = int(os.environ.get("NIGHTWATCH_PORT", str(nw.get("port", 8037))))
+    if not (1 <= port <= 65535):
+        raise ValueError(f"NIGHTWATCH_PORT must be between 1 and 65535, got {port}")
 
     _CACHED = Settings(
         data_dir=data_dir,
@@ -98,4 +107,3 @@ def get_settings() -> Settings:
         config_path=config_path,
     )
     return _CACHED
-

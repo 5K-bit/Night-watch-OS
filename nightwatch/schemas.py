@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ShiftOut(BaseModel):
@@ -25,6 +25,14 @@ class ShiftNotesIn(BaseModel):
 class TaskIn(BaseModel):
     title: str = Field(min_length=1, max_length=240)
 
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Task title cannot be blank.")
+        return value
+
 
 class TaskOut(BaseModel):
     id: int
@@ -45,4 +53,3 @@ class SystemOut(BaseModel):
     disk_total_gb: float
     temp_c: float | None
     network_up: bool
-

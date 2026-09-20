@@ -30,24 +30,29 @@ def _read_any_temp_c() -> float | None:
     return _read_pi_temp_c()
 
 
-def _network_up(timeout_s: float = 0.6) -> bool:
-    # Fast, local-ish signal: any interface up + can open a UDP socket.
+def _network_up() -> bool:
+    """Report local network availability without requiring internet access.
+
+    Nightwatch is local-first, so a LAN-only or Tailscale-only node must still be
+    considered online. We therefore inspect non-loopback interfaces instead of
+    probing a public DNS server.
+    """
     try:
         if_stats = psutil.net_if_stats()
-        if not any(st.isup for st in if_stats.values()):
-            return False
-    except Exception:
-        pass
-
-    # UDP "connect" doesn't send packets but validates route.
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(timeout_s)
-        s.connect(("1.1.1.1", 53))
-        s.close()
-        return True
+        if_addrs = psutil.net_if_addrs()
     except Exception:
         return False
+
+    for name, stats in if_stats.items():
+        if not stats.isup or name.lower() in {"lo", "lo0", "loopback"}:
+            continue
+        for address in if_addrs.get(name, []):
+            if address.family not in {socket.AF_INET, socket.AF_INET6}:
+                continue
+            value = (address.address or "").split("%", 1)[0]
+            if value and value not in {"127.0.0.1", "::1"}:
+                return True
+    return False
 
 
 def read_system_snapshot() -> dict:
@@ -67,4 +72,3 @@ def read_system_snapshot() -> dict:
         "temp_c": _read_any_temp_c(),
         "network_up": _network_up(),
     }
-
