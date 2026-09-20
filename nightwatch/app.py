@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from nightwatch.db import get_db, init_db
-from nightwatch.obeos_events import publish_event
+from nightwatch.obeos_events import enqueue_event as publish_event, delivery_status, shutdown_delivery, start_delivery
 from nightwatch.schemas import ShiftNotesIn, ShiftOut, ShiftStartOut, SystemOut, TaskIn, TaskOut
 from nightwatch.services import add_task, complete_task, delete_task, end_shift, get_active_shift, list_tasks_for_active_shift, reopen_task, set_shift_notes, start_shift
 from nightwatch.system_watch import read_system_snapshot
@@ -33,16 +33,18 @@ def create_app() -> FastAPI:
         from nightwatch.backup import ensure_daily_backup
         from nightwatch.config import get_settings
         while True:
-            ensure_daily_backup(get_settings().db_path, get_settings().backups_dir)
+            await asyncio.to_thread(ensure_daily_backup, get_settings().db_path, get_settings().backups_dir)
             await asyncio.sleep(30 * 60)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         init_db()
+        await asyncio.to_thread(start_delivery)
         task = asyncio.create_task(_backup_loop())
         try:
             yield
         finally:
+            await asyncio.to_thread(shutdown_delivery)
             task.cancel()
             try:
                 await task
@@ -52,7 +54,7 @@ def create_app() -> FastAPI:
                 pass
             from nightwatch.backup import ensure_daily_backup
             from nightwatch.config import get_settings
-            ensure_daily_backup(get_settings().db_path, get_settings().backups_dir)
+            await asyncio.to_thread(ensure_daily_backup, get_settings().db_path, get_settings().backups_dir)
 
     app = FastAPI(title="Nightwatch OS Dashboard", version="0.1.0", lifespan=lifespan)
     static_dir = Path(__file__).parent / "static"
@@ -68,7 +70,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     def health() -> dict:
-        return {"ok": True}
+        return {"ok": True, "event_delivery": delivery_status()}
 
     @app.get("/api/shift/current", response_model=ShiftOut | None)
     def shift_current(db: Session = Depends(get_db)) -> ShiftOut | None:
