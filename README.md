@@ -1,4 +1,10 @@
+<div align="center">
+  <img src="assets/brand/github-banner.svg" alt="Night-watch-OS — A local dashboard for overnight operators" width="1200">
+</div>
+
 # Night-watch-OS
+
+[Quick Start](#quick-start) · [Features](#features) · [Status](#status)
 
 Night-watch-OS is a local-first Linux dashboard for overnight operators, combining shift logging, task tracking, and basic system visibility in a restrained interface.
 
