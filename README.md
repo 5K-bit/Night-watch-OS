@@ -136,3 +136,13 @@ Current boundaries:
 ## Portfolio Note
 
 Night-watch-OS shows a practical Blackfong direction: local-first tooling for operators, not a generic dashboard demo. It demonstrates restrained product thinking across backend, frontend, CLI, persistence, and daily-use workflow design.
+
+## Licence
+
+Apache-2.0. See [LICENSE](LICENSE).
+
+## AI assistance
+
+AI tools assist with implementation, debugging, tests, and documentation.
+
+Louis Boddie owns project direction and acceptance decisions; linked tests and release evidence document what has been verified.
